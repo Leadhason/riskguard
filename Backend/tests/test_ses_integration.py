@@ -10,7 +10,7 @@ import django
 from pathlib import Path
 
 # Add the project root to the Python path
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
 # Setup Django environment
@@ -80,27 +80,23 @@ async def test_otp_service():
 
 
 def check_configuration():
-    """Check SES configuration"""
-    print("\nChecking SES Configuration")
+    """Check Resend configuration"""
+    print("\nChecking Resend Configuration")
     print("=" * 50)
     
-    # Check environment variables (using existing AWS credentials)
-    ses_access_key = getattr(settings, 'AWS_ACCESS_KEY_ID', None)
-    ses_secret_key = getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
-    ses_region = getattr(settings, 'AWS_REGION', None)
-    ses_from_email = getattr(settings, 'AWS_SES_FROM_EMAIL', None)
+    # Check environment variables
+    resend_api_key = getattr(settings, 'RESEND_API_KEY', None)
+    resend_from_email = getattr(settings, 'RESEND_FROM_EMAIL', None)
     
-    print(f"AWS_ACCESS_KEY_ID: {'Set' if ses_access_key else 'Not set'}")
-    print(f"AWS_SECRET_ACCESS_KEY: {'Set' if ses_secret_key else 'Not set'}")
-    print(f"AWS_REGION: {ses_region if ses_region else 'Not set'}")
-    print(f"AWS_SES_FROM_EMAIL: {ses_from_email if ses_from_email else 'Not set'}")
+    print(f"RESEND_API_KEY: {'Set' if resend_api_key else 'Not set'}")
+    print(f"RESEND_FROM_EMAIL: {resend_from_email if resend_from_email else 'Not set'}")
     
-    if not all([ses_access_key, ses_secret_key, ses_region, ses_from_email]):
-        print("\nWARNING: Some SES configuration is missing!")
-        print("   Please update your .env file with proper SES credentials")
+    if not resend_api_key or not resend_from_email:
+        print("\nWARNING: Some Resend configuration is missing!")
+        print("   Please update your .env file with proper Resend settings")
         print("   The system will fall back to Django email backend")
     else:
-        print("\nSUCCESS: SES configuration appears complete!")
+        print("\nSUCCESS: Resend configuration appears complete!")
 
 async def main():
     """Main test function"""

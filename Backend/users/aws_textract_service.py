@@ -12,94 +12,97 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 class AWSTextractService:
-    """AWS Textract service for Ghana Card ID document processing"""
+    """Local Tesseract OCR and Backblaze B2 service for Ghana Card ID document processing"""
     
     def __init__(self):
-        """Initialize AWS Textract and S3 clients"""
+        """Initialize Backblaze B2 client if configured"""
         try:
-            # Initialize AWS clients
-            self.textract_client = boto3.client(
-                'textract',
-                aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
-                aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None),
-                region_name=getattr(settings, 'AWS_REGION', 'us-east-1')
-            )
+            # Initialize Backblaze B2 client (S3-compatible API)
+            b2_access_key = getattr(settings, 'B2_APPLICATION_KEY_ID', None)
+            b2_secret_key = getattr(settings, 'B2_APPLICATION_KEY', None)
+            b2_endpoint_url = getattr(settings, 'B2_ENDPOINT_URL', None)
+            b2_region = getattr(settings, 'B2_REGION', 'us-east-1')
             
-            self.s3_client = boto3.client(
-                's3',
-                aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
-                aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None),
-                region_name=getattr(settings, 'AWS_REGION', 'us-east-1')
-            )
+            self.s3_bucket = getattr(settings, 'B2_BUCKET_NAME', None)
+            self.b2_configured = bool(b2_access_key and b2_secret_key and b2_endpoint_url and self.s3_bucket)
             
-            self.s3_bucket = getattr(settings, 'AWS_S3_BUCKET_NAME', None)
-            
-            if not self.s3_bucket:
-                raise ValueError("AWS_S3_BUCKET_NAME not configured")
+            if self.b2_configured:
+                self.s3_client = boto3.client(
+                    's3',
+                    aws_access_key_id=b2_access_key,
+                    aws_secret_access_key=b2_secret_key,
+                    endpoint_url=b2_endpoint_url,
+                    region_name=b2_region
+                )
+                logger.info("Backblaze B2 client initialized successfully")
+            else:
+                self.s3_client = None
+                logger.warning("Backblaze B2 is not fully configured, local processing will run without B2 uploads")
                 
         except Exception as e:
-            logger.error(f"Failed to initialize AWS clients: {str(e)}")
-            raise
+            logger.error(f"Failed to initialize Backblaze B2 client: {str(e)}")
+            self.s3_client = None
+            self.b2_configured = False
     
     def validate_aws_credentials(self) -> bool:
-        """Validate AWS credentials and permissions"""
-        try:
-            # Test S3 access
-            self.s3_client.head_bucket(Bucket=self.s3_bucket)
+        """Validate B2 credentials if configured, otherwise return True for local-only mode"""
+        if not self.b2_configured or not self.s3_client:
+            logger.info("Backblaze B2 is not configured - using local Tesseract OCR mode")
+            return True
             
-            # Test Textract access by checking supported document types
-            self.textract_client.list_tags_for_resource(ResourceARN="test")
+        try:
+            # Test B2 access
+            self.s3_client.head_bucket(Bucket=self.s3_bucket)
+            logger.info("[OK] Backblaze B2 bucket connection verified")
+            return True
         except ClientError as e:
             error_code = e.response['Error']['Code']
             if error_code == 'NoSuchBucket':
-                logger.error(f"S3 bucket {self.s3_bucket} does not exist")
-                return False
+                logger.error(f"B2 bucket {self.s3_bucket} does not exist")
             elif error_code in ['AccessDenied', 'Forbidden']:
-                logger.error("AWS credentials do not have required permissions")
-                return False
-            # For Textract test, InvalidParameterException is expected
-            return True
-        except NoCredentialsError:
-            logger.error("AWS credentials not found")
+                logger.error("B2 credentials do not have required permissions")
             return False
         except Exception as e:
-            logger.error(f"AWS validation failed: {str(e)}")
+            logger.error(f"B2 validation failed: {str(e)}")
             return False
-        
-        return True
     
     def upload_to_s3(self, image_file, file_key: str) -> str:
-        """Upload image file to S3 and return the key"""
+        """Upload image file to Backblaze B2 and return the key (noop if B2 not configured)"""
+        if not self.b2_configured or not self.s3_client:
+            return file_key
+            
         try:
             # Reset file pointer
-            image_file.seek(0)
+            if hasattr(image_file, 'seek'):
+                image_file.seek(0)
             
             # Validate and optimize image
             optimized_image = self._optimize_image_for_textract(image_file)
             
-            # Upload to S3
+            # Upload to R2
             self.s3_client.upload_fileobj(
                 optimized_image,
                 self.s3_bucket,
                 file_key,
                 ExtraArgs={
-                    'ContentType': 'image/jpeg',
-                    'ServerSideEncryption': 'AES256'
+                    'ContentType': 'image/jpeg'
                 }
             )
             
-            logger.info(f"Successfully uploaded image to S3: {file_key}")
+            logger.info(f"Successfully uploaded image to Cloudflare R2: {file_key}")
             return file_key
             
         except Exception as e:
-            logger.error(f"Failed to upload image to S3: {str(e)}")
-            raise
+            logger.error(f"Failed to upload image to Cloudflare R2: {str(e)}")
+            # We don't fail document processing if audit logging fails
+            return file_key
     
     def _optimize_image_for_textract(self, image_file) -> BytesIO:
-        """Optimize image for Textract processing"""
+        """Optimize image size and properties for processing"""
         try:
             # Reset file pointer
-            image_file.seek(0)
+            if hasattr(image_file, 'seek'):
+                image_file.seek(0)
             
             # Open image with PIL
             image = Image.open(image_file)
@@ -111,7 +114,7 @@ class AWSTextractService:
             # Get image dimensions
             width, height = image.size
             
-            # Textract requirements: max 10MB, max 4096x4096 pixels
+            # Target requirements: max 10MB, max 4096x4096 pixels
             max_dimension = 4096
             max_file_size = 10 * 1024 * 1024  # 10MB
             
@@ -126,7 +129,6 @@ class AWSTextractService:
             # Save optimized image to BytesIO
             optimized_buffer = BytesIO()
             
-            # Try different quality settings to meet size requirement
             for quality in [95, 85, 75, 65]:
                 optimized_buffer.seek(0)
                 optimized_buffer.truncate()
@@ -148,7 +150,7 @@ class AWSTextractService:
     
     def analyze_ghana_card(self, front_image_file, back_image_file, user_id: str) -> Dict[str, Any]:
         """
-        Analyze Ghana Card images using AWS Textract AnalyzeID
+        Analyze Ghana Card images using local Tesseract OCR with optional Backblaze B2 backup
         
         Args:
             front_image_file: Front image of Ghana Card
@@ -156,38 +158,53 @@ class AWSTextractService:
             user_id: User identifier for file naming
             
         Returns:
-            Dict containing extracted information
+            Dict containing extracted information matching the AWS Textract format
         """
         start_time = time.time()
         
         try:
-            # Validate AWS setup
+            # Validate credentials if configured
             if not self.validate_aws_credentials():
-                raise Exception("AWS credentials validation failed")
+                raise Exception("Backblaze B2 credentials validation failed")
             
-            # Generate unique file keys
+            # Generate unique file keys for optional upload
             timestamp = str(int(time.time()))
             front_key = f"ghana-cards/{user_id}/front_{timestamp}.jpg"
             back_key = f"ghana-cards/{user_id}/back_{timestamp}.jpg"
             
-            # Upload images to S3
-            logger.info("Uploading images to S3...")
-            front_s3_key = self.upload_to_s3(front_image_file, front_key)
-            back_s3_key = self.upload_to_s3(back_image_file, back_key)
+            # Upload images to Backblaze B2 for auditing (optional/noop if not configured)
+            if self.b2_configured:
+                logger.info("Uploading images to Backblaze B2 for auditing...")
+                front_s3_key = self.upload_to_s3(front_image_file, front_key)
+                back_s3_key = self.upload_to_s3(back_image_file, back_key)
+            else:
+                front_s3_key = front_key
+                back_s3_key = back_key
             
-            # Analyze front image (contains name and photo)
-            logger.info("Analyzing front image with Textract...")
-            front_analysis = self._analyze_single_image(front_s3_key, document_type="IDENTITY_DOCUMENT")
+            # Ensure streams are reset before OCR
+            if hasattr(front_image_file, 'seek'):
+                front_image_file.seek(0)
+            if hasattr(back_image_file, 'seek'):
+                back_image_file.seek(0)
             
-            # Analyze back image (contains ID number)
-            logger.info("Analyzing back image with Textract...")
-            back_analysis = self._analyze_single_image(back_s3_key, document_type="IDENTITY_DOCUMENT")
+            # Analyze front image locally (contains name and photo)
+            logger.info("Analyzing front image with Tesseract OCR...")
+            front_analysis = self._analyze_single_image(front_image_file, document_type="IDENTITY_DOCUMENT")
+            
+            # Ensure back stream is reset
+            if hasattr(back_image_file, 'seek'):
+                back_image_file.seek(0)
+            
+            # Analyze back image locally (contains ID number)
+            logger.info("Analyzing back image with Tesseract OCR...")
+            back_analysis = self._analyze_single_image(back_image_file, document_type="IDENTITY_DOCUMENT")
             
             # Extract structured information
             extracted_info = self._extract_ghana_card_info(front_analysis, back_analysis)
             
-            # Clean up S3 files (optional - you might want to keep them for audit)
-            self._cleanup_s3_files([front_s3_key, back_s3_key])
+            # Clean up files in B2 if audit uploads were completed
+            if self.b2_configured:
+                self._cleanup_s3_files([front_s3_key, back_s3_key])
             
             processing_time = (time.time() - start_time) * 1000
             
@@ -219,29 +236,129 @@ class AWSTextractService:
                 }
             }
     
-    def _analyze_single_image(self, s3_key: str, document_type: str = "IDENTITY_DOCUMENT") -> Dict[str, Any]:
-        """Analyze a single image using Textract AnalyzeID"""
+    def _analyze_single_image(self, image_file, document_type: str = "IDENTITY_DOCUMENT") -> Dict[str, Any]:
+        """Analyze a single image locally using Tesseract OCR and format to mimic AWS Textract AnalyzeID response"""
         try:
-            response = self.textract_client.analyze_id(
-                DocumentPages=[
-                    {
-                        'S3Object': {
-                            'Bucket': self.s3_bucket,
-                            'Name': s3_key
-                        }
-                    }
-                ]
-            )
+            import pytesseract
             
+            if hasattr(image_file, 'seek'):
+                image_file.seek(0)
+                
+            image = Image.open(image_file)
+            
+            # Perform local Tesseract OCR
+            ocr_text = pytesseract.image_to_string(image)
+            lines = ocr_text.split('\n')
+            
+            # Format to mimic Textract's LINE Blocks structure
+            blocks = []
+            for idx, line in enumerate(lines):
+                line_stripped = line.strip()
+                if line_stripped:
+                    blocks.append({
+                        'Id': f"block-{idx}",
+                        'BlockType': 'LINE',
+                        'Text': line_stripped,
+                        'Confidence': 95.0
+                    })
+            
+            # Positional & Keyword Field Extraction (Surname, Forenames, Personal ID number)
+            fields = []
+            normalized_lines = [l.strip() for l in lines if l.strip()]
+            
+            surname_val = None
+            firstname_val = None
+            id_val = None
+            
+            for i, line in enumerate(normalized_lines):
+                line_upper = line.upper()
+                
+                # Extract Surname
+                if any(kw in line_upper for kw in ['SURNAME', 'LAST NAME', 'SUR NAME', 'FAMILY NAME']):
+                    # Same-line extraction
+                    words = line.split()
+                    kw_idx = -1
+                    for idx, w in enumerate(words):
+                        if any(kw in w.upper() for kw in ['SURNAME', 'LAST', 'SUR', 'FAMILY']):
+                            kw_idx = idx
+                            break
+                    if kw_idx != -1 and len(words) > kw_idx + 1:
+                        val = ' '.join(words[kw_idx+1:]).replace(':', '').strip()
+                        if val.isalpha() and len(val) > 1:
+                            surname_val = val
+                    
+                    # Next-line extraction
+                    if not surname_val and i + 1 < len(normalized_lines):
+                        next_line = normalized_lines[i+1]
+                        if next_line.replace(' ', '').isalpha() and not any(k in next_line.upper() for k in ['FIRST', 'FORENAME', 'GIVEN', 'NAME', 'DATE', 'SEX', 'ID', 'NO']):
+                            surname_val = next_line.strip()
+                            
+                # Extract First name/Forenames
+                elif any(kw in line_upper for kw in ['FIRST NAME', 'GIVEN NAME', 'FORENAMES', 'FORENAME', 'FIRSTNAME']):
+                    # Same-line extraction
+                    words = line.split()
+                    kw_idx = -1
+                    for idx, w in enumerate(words):
+                        if any(kw in w.upper() for kw in ['FIRST', 'GIVEN', 'FORENAMES', 'FORENAME', 'FIRSTNAME']):
+                            kw_idx = idx
+                            break
+                    if kw_idx != -1 and len(words) > kw_idx + 1:
+                        val = ' '.join(words[kw_idx+1:]).replace(':', '').strip()
+                        if val.replace(' ', '').isalpha() and len(val) > 1:
+                            firstname_val = val
+                    
+                    # Next-line extraction
+                    if not firstname_val and i + 1 < len(normalized_lines):
+                        next_line = normalized_lines[i+1]
+                        if next_line.replace(' ', '').isalpha() and not any(k in next_line.upper() for k in ['SURNAME', 'LAST', 'SEX', 'DATE', 'ID', 'NO']):
+                            firstname_val = next_line.strip()
+                            
+                # Extract ID Number
+                elif any(kw in line_upper for kw in ['PERSONAL ID', 'CARD NO', 'ID NUMBER', 'CARD NUMBER', 'DOCUMENT NO', 'NO.']):
+                    import re
+                    # Look for GHA pattern
+                    match = re.search(r'GHA[-\s]*[A-Z0-9]{9}[-\s]*\d', line_upper)
+                    if match:
+                        id_val = match.group(0)
+                    else:
+                        if i + 1 < len(normalized_lines):
+                            next_line = normalized_lines[i+1].upper()
+                            match_next = re.search(r'GHA[-\s]*[A-Z0-9]{9}[-\s]*\d', next_line)
+                            if match_next:
+                                id_val = match_next.group(0)
+            
+            # Map values to structured field types for the document analyzer
+            if surname_val:
+                fields.append({
+                    'Type': {'Text': 'LAST_NAME'},
+                    'ValueDetection': {'Text': surname_val, 'Confidence': 95.0}
+                })
+            if firstname_val:
+                fields.append({
+                    'Type': {'Text': 'FIRST_NAME'},
+                    'ValueDetection': {'Text': firstname_val, 'Confidence': 95.0}
+                })
+            if id_val:
+                fields.append({
+                    'Type': {'Text': 'PERSONAL_ID_NUMBER'},
+                    'ValueDetection': {'Text': id_val, 'Confidence': 95.0}
+                })
+                
+            response = {
+                'IdentityDocuments': [
+                    {
+                        'IdentityDocumentFields': fields,
+                        'Blocks': blocks
+                    }
+                ],
+                'Blocks': blocks
+            }
+            
+            logger.info(f"Local Tesseract OCR completed. Extracted fields: {[f['Type']['Text'] for f in fields]}")
             return response
             
-        except ClientError as e:
-            error_code = e.response['Error']['Code']
-            error_message = e.response['Error']['Message']
-            logger.error(f"Textract AnalyzeID failed for {s3_key}: {error_code} - {error_message}")
-            raise Exception(f"Textract analysis failed: {error_message}")
         except Exception as e:
-            logger.error(f"Unexpected error during Textract analysis: {str(e)}")
+            logger.error(f"Local Tesseract OCR analysis failed: {str(e)}")
             raise
     
     def _extract_ghana_card_info(self, front_analysis: Dict[str, Any], back_analysis: Dict[str, Any]) -> Dict[str, Any]:

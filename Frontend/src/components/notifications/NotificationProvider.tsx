@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useCallback, useEffect, useRef } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
+import { selectIsAuthenticated } from '../redux/features/auth/authSlice';
 import { 
   useGetRecentNotificationsQuery,
   useGetUnreadCountQuery,
@@ -21,6 +22,7 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const dispatch = useDispatch();
+  const isAuthenticated = useSelector(selectIsAuthenticated);
   const { playNotificationSound, isSoundEnabled } = useNotificationSound();
   const previousNotificationCountRef = useRef<number>(0);
   const isInitialLoadRef = useRef(true);
@@ -29,17 +31,23 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     data: notifications = [], 
     isLoading,
     refetch: refetchNotifications 
-  } = useGetRecentNotificationsQuery();
+  } = useGetRecentNotificationsQuery(undefined, {
+    skip: !isAuthenticated
+  });
   
   const { 
     data: unreadCountData,
     refetch: refetchUnreadCount 
-  } = useGetUnreadCountQuery();
+  } = useGetUnreadCountQuery(undefined, {
+    skip: !isAuthenticated
+  });
 
   const refreshNotifications = useCallback(() => {
-    refetchNotifications();
-    refetchUnreadCount();
-  }, [refetchNotifications, refetchUnreadCount]);
+    if (isAuthenticated) {
+      refetchNotifications();
+      refetchUnreadCount();
+    }
+  }, [isAuthenticated, refetchNotifications, refetchUnreadCount]);
 
   const clearCache = useCallback(() => {
     dispatch(notificationsApi.util.invalidateTags(['Notifications']));
@@ -98,16 +106,16 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     let interval: NodeJS.Timeout;
     
     const handleVisibilityChange = () => {
-      if (!document.hidden) {
+      if (!document.hidden && isAuthenticated) {
         refreshNotifications();
       }
     };
 
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && isAuthenticated) {
       document.addEventListener('visibilitychange', handleVisibilityChange);
       
       interval = setInterval(() => {
-        if (!document.hidden) {
+        if (!document.hidden && isAuthenticated) {
           refreshNotifications();
         }
       }, 30000); // 30 seconds
@@ -121,7 +129,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         clearInterval(interval);
       }
     };
-  }, [refreshNotifications]);
+  }, [refreshNotifications, isAuthenticated]);
 
   const testNotificationSound = useCallback((type: 'default' | 'success' | 'warning' | 'error' = 'default') => {
     playNotificationSound(type);

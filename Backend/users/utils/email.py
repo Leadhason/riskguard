@@ -9,56 +9,50 @@ from botocore.exceptions import ClientError, NoCredentialsError
 logger = logging.getLogger(__name__)
 
 
-def send_email_via_ses(subject, html_message, plain_message, recipient_email, from_email=None):
-    """Send email using AWS SES with fallback to Django"""
+def send_email_via_resend(subject, html_message, plain_message, recipient_email, from_email=None):
+    """Send email using Resend API with fallback to Django"""
     try:
-        # Get SES configuration (using existing AWS credentials)
-        ses_access_key = getattr(settings, 'AWS_ACCESS_KEY_ID', None)
-        ses_secret_key = getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
-        ses_region = getattr(settings, 'AWS_REGION', 'us-east-1')
-        ses_from_email = from_email or getattr(settings, 'AWS_SES_FROM_EMAIL', settings.DEFAULT_FROM_EMAIL)
-        ses_configuration_set = getattr(settings, 'AWS_SES_CONFIGURATION_SET', None)
+        import requests
         
-        if not ses_access_key or not ses_secret_key:
-            logger.warning("AWS SES credentials not configured, falling back to Django email")
-            raise Exception("SES not configured")
+        # Get Resend configuration
+        resend_api_key = getattr(settings, 'RESEND_API_KEY', None)
+        resend_from_email = from_email or getattr(settings, 'RESEND_FROM_EMAIL', 'onboarding@resend.dev')
         
-        # Create SES client
-        ses_client = boto3.client(
-            'ses',
-            aws_access_key_id=ses_access_key,
-            aws_secret_access_key=ses_secret_key,
-            region_name=ses_region
+        if not resend_api_key:
+            logger.warning("Resend API key not configured, falling back to Django email")
+            raise Exception("Resend API key not configured")
+        
+        # Send email using Resend API
+        headers = {
+            "Authorization": f"Bearer {resend_api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "from": resend_from_email,
+            "to": [recipient_email],
+            "subject": subject,
+            "html": html_message,
+            "text": plain_message
+        }
+        
+        response = requests.post(
+            "https://api.resend.com/emails",
+            json=payload,
+            headers=headers,
+            timeout=10
         )
         
-        # Prepare email
-        message = {
-            'Subject': {'Data': subject, 'Charset': 'UTF-8'},
-            'Body': {
-                'Text': {'Data': plain_message, 'Charset': 'UTF-8'},
-                'Html': {'Data': html_message, 'Charset': 'UTF-8'}
-            }
-        }
-        
-        # Prepare send parameters
-        send_params = {
-            'Source': ses_from_email,
-            'Destination': {'ToAddresses': [recipient_email]},
-            'Message': message
-        }
-        
-        # Add configuration set if specified
-        if ses_configuration_set:
-            send_params['ConfigurationSetName'] = ses_configuration_set
-        
-        # Send email
-        response = ses_client.send_email(**send_params)
-        
-        logger.info(f"AWS SES email sent successfully to {recipient_email}, MessageId: {response['MessageId']}")
-        return True
-        
-    except (NoCredentialsError, ClientError, Exception) as e:
-        logger.warning(f"AWS SES failed ({str(e)}), falling back to Django email")
+        if response.status_code in [200, 201, 202]:
+            response_data = response.json()
+            logger.info(f"Resend email sent successfully to {recipient_email}, Id: {response_data.get('id')}")
+            return True
+        else:
+            logger.warning(f"Resend API returned error {response.status_code}: {response.text}")
+            raise Exception(f"Resend API error: {response.text}")
+            
+    except Exception as e:
+        logger.warning(f"Resend email failed ({str(e)}), falling back to Django email")
         
         # Fallback to Django email
         try:
@@ -75,8 +69,11 @@ def send_email_via_ses(subject, html_message, plain_message, recipient_email, fr
             return result == 1
             
         except Exception as django_error:
-            logger.error(f"Both AWS SES and Django email failed: {str(django_error)}")
+            logger.error(f"Both Resend and Django email failed: {str(django_error)}")
             raise
+
+# Backward-compatible alias
+send_email_via_ses = send_email_via_resend
 
 
 def send_welcome_email(user):

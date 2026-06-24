@@ -80,7 +80,7 @@ RUN mkdir -p /app/media /app/static /app/logs /app/ml_model/models && \
 COPY --chown=riskguard:riskguard . .
 
 # Copy ML model files (if they exist)
-COPY --chown=riskguard:riskguard ml_model/models/* /app/ml_model/models/ 2>/dev/null || true
+COPY --chown=riskguard:riskguard ml_model/ /app/ml_model/
 
 # Create supervisor startup script
 RUN cat > /app/entrypoint.sh << 'EOF'
@@ -170,4 +170,4 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
 ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Default command
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120", "--max-requests", "1000", "--max-requests-jitter", "100", "backend.wsgi:application"]
+CMD ["daphne", "-b", "0.0.0.0", "-p", "8000", "backend.asgi:application"]

@@ -89,9 +89,14 @@ export const useAuth = (): UseAuthReturn => {
       const baseUrl =
         import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api/";
 
-      const cleanBaseUrl = baseUrl.endsWith("/")
+      let cleanBaseUrl = baseUrl.endsWith("/")
         ? baseUrl.slice(0, -1)
         : baseUrl;
+
+      if (cleanBaseUrl.endsWith("/api")) {
+        cleanBaseUrl = cleanBaseUrl.slice(0, -4);
+      }
+
       const cleanImagePath = imagePath.startsWith("/")
         ? imagePath
         : `/${imagePath}`;

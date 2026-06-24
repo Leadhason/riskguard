@@ -241,6 +241,7 @@ PASSWORD_RESET_TIMEOUT = 7200
 
 # Application definition
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -431,6 +432,9 @@ DATABASES = {
         'PASSWORD': os.getenv('DB_PASSWORD'), 
         'HOST': os.getenv('DB_HOST'),
         'PORT': os.getenv('DB_PORT'),
+        'OPTIONS': {
+            'sslmode': 'require',
+        },
     }
 }
 
@@ -506,22 +510,19 @@ ML_MODEL_PATH = os.path.join(BASE_DIR, 'ml_model', 'models')
 ML_CONFIDENCE_THRESHOLD = float(os.getenv('ML_CONFIDENCE_THRESHOLD', '0.7'))
 GHANA_EMPLOYMENT_ANALYSIS_ENABLED = os.getenv('GHANA_EMPLOYMENT_ANALYSIS_ENABLED', 'True').lower() == 'true'
 
-# ===== AWS Configuration =====
-# AWS credentials and region
-AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
-AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
-AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
+# ===== Backblaze B2 Configuration (S3-Compatible Object Storage) =====
+B2_APPLICATION_KEY_ID = os.getenv('B2_APPLICATION_KEY_ID', os.getenv('AWS_ACCESS_KEY_ID'))
+B2_APPLICATION_KEY = os.getenv('B2_APPLICATION_KEY', os.getenv('AWS_SECRET_ACCESS_KEY'))
+B2_BUCKET_NAME = os.getenv('B2_BUCKET_NAME', os.getenv('AWS_S3_BUCKET_NAME'))
+B2_ENDPOINT_URL = os.getenv('B2_ENDPOINT_URL')  # e.g., https://s3.us-west-004.backblazeb2.com
+B2_REGION = os.getenv('B2_REGION', 'us-east-1')
 
-# AWS S3 Configuration
-AWS_S3_BUCKET_NAME = os.getenv('AWS_S3_BUCKET_NAME')
-AWS_S3_REGION = os.getenv('AWS_S3_REGION', AWS_REGION)
-AWS_S3_CUSTOM_DOMAIN = os.getenv('AWS_S3_CUSTOM_DOMAIN')
+# ===== Resend Email Configuration =====
+RESEND_API_KEY = os.getenv('RESEND_API_KEY')
+RESEND_FROM_EMAIL = os.getenv('RESEND_FROM_EMAIL', 'onboarding@resend.dev')
 
-# AWS Textract Configuration
-AWS_TEXTRACT_REGION = os.getenv('AWS_TEXTRACT_REGION', AWS_REGION)
-
-# Document processing settings
-DOCUMENT_PROCESSING_ENGINE = os.getenv('DOCUMENT_PROCESSING_ENGINE', 'textract')  # 'textract' or 'ocr'
+# ===== Document processing settings =====
+DOCUMENT_PROCESSING_ENGINE = os.getenv('DOCUMENT_PROCESSING_ENGINE', 'tesseract')  # 'tesseract' or 'textract'
 FALLBACK_TO_OCR_ON_TEXTRACT_FAILURE = os.getenv('FALLBACK_TO_OCR_ON_TEXTRACT_FAILURE', 'True').lower() == 'true'
 
 # Ghana Card specific settings

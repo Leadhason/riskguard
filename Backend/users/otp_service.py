@@ -86,7 +86,7 @@ class OTPDeliveryService:
     
     def __init__(self):
         self.email_providers = [
-            'aws_ses',      # Primary - Amazon SES
+            'resend',       # Primary - Resend API
             'django_smtp',  # Fallback 1
             'sendgrid',     # Fallback 2
         ]
@@ -109,16 +109,16 @@ class OTPDeliveryService:
         start_time = time.time()
         
         try:
-            # Try primary email provider (AWS SES)
-            success = await self._send_aws_ses_email(email, otp, template_context)
+            # Try primary email provider (Resend API)
+            success = await self._send_resend_email(email, otp, template_context)
             
             if success:
                 result.update({
                     'success': True,
-                    'provider_used': 'aws_ses',
+                    'provider_used': 'resend',
                     'delivery_time_ms': (time.time() - start_time) * 1000
                 })
-                logger.info(f"Email OTP sent successfully via AWS SES to {email}")
+                logger.info(f"Email OTP sent successfully via Resend to {email}")
                 return result
             
             # Try fallback providers if primary fails
@@ -250,30 +250,18 @@ class OTPDeliveryService:
             logger.error(f"SendGrid email failed: {str(e)}")
             return False
     
-    async def _send_aws_ses_email(self, email: str, otp: str, context: Dict[str, Any]) -> bool:
-        """Send email using AWS SES"""
+    async def _send_resend_email(self, email: str, otp: str, context: Dict[str, Any]) -> bool:
+        """Send email using Resend API"""
         try:
-            import boto3
-            from botocore.exceptions import ClientError, NoCredentialsError
+            import requests
             
-            # Get SES configuration from settings (using existing AWS credentials)
-            ses_access_key = getattr(settings, 'AWS_ACCESS_KEY_ID', None)
-            ses_secret_key = getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
-            ses_region = getattr(settings, 'AWS_REGION', 'us-east-1')
-            ses_from_email = getattr(settings, 'AWS_SES_FROM_EMAIL', 'noreply@yourdomain.com')
-            ses_configuration_set = getattr(settings, 'AWS_SES_CONFIGURATION_SET', None)
+            # Get Resend configuration from settings
+            resend_api_key = getattr(settings, 'RESEND_API_KEY', None)
+            resend_from_email = getattr(settings, 'RESEND_FROM_EMAIL', 'onboarding@resend.dev')
             
-            if not ses_access_key or not ses_secret_key:
-                logger.warning("AWS SES credentials not configured")
+            if not resend_api_key:
+                logger.warning("Resend API key not configured")
                 return False
-            
-            # Create SES client
-            ses_client = boto3.client(
-                'ses',
-                aws_access_key_id=ses_access_key,
-                aws_secret_access_key=ses_secret_key,
-                region_name=ses_region
-            )
             
             # Render HTML template
             html_message = render_to_string('emails/otp_verification.html', {
@@ -288,42 +276,37 @@ class OTPDeliveryService:
             # Create plain text version
             plain_message = strip_tags(html_message)
             
-            # Prepare email
-            message = {
-                'Subject': {'Data': f'Your Verification Code: {otp}', 'Charset': 'UTF-8'},
-                'Body': {
-                    'Text': {'Data': plain_message, 'Charset': 'UTF-8'},
-                    'Html': {'Data': html_message, 'Charset': 'UTF-8'}
-                }
+            # Call Resend REST API
+            headers = {
+                "Authorization": f"Bearer {resend_api_key}",
+                "Content-Type": "application/json"
             }
             
-            # Prepare send parameters
-            send_params = {
-                'Source': ses_from_email,
-                'Destination': {'ToAddresses': [email]},
-                'Message': message
+            payload = {
+                "from": resend_from_email,
+                "to": [email],
+                "subject": f'Your Verification Code: {otp}',
+                "html": html_message,
+                "text": plain_message
             }
             
-            # Add configuration set if specified
-            if ses_configuration_set:
-                send_params['ConfigurationSetName'] = ses_configuration_set
+            response = requests.post(
+                "https://api.resend.com/emails",
+                json=payload,
+                headers=headers,
+                timeout=10
+            )
             
-            # Send email
-            response = ses_client.send_email(**send_params)
-            
-            logger.info(f"AWS SES email sent successfully to {email}, MessageId: {response['MessageId']}")
-            return True
-            
-        except NoCredentialsError:
-            logger.error("AWS SES credentials not found")
-            return False
-        except ClientError as e:
-            error_code = e.response['Error']['Code']
-            error_message = e.response['Error']['Message']
-            logger.error(f"AWS SES ClientError {error_code}: {error_message}")
-            return False
+            if response.status_code in [200, 201, 202]:
+                response_data = response.json()
+                logger.info(f"Resend email OTP sent successfully to {email}, Id: {response_data.get('id')}")
+                return True
+            else:
+                logger.error(f"Resend API returned error {response.status_code}: {response.text}")
+                return False
+                
         except Exception as e:
-            logger.error(f"AWS SES email failed: {str(e)}")
+            logger.error(f"Resend email OTP failed: {str(e)}")
             return False
     
     async def _send_twilio_sms(self, phone: str, otp: str, context: Dict[str, Any]) -> bool:

@@ -19,18 +19,24 @@ EMAIL_HOST_USER = your_email_username
 EMAIL_HOST_PASSWORD = your_host_password
 DEFAULT_FROM_EMAIL = 'klvnafriyie123@gmail.com'
 
-# Celery settings
-CELERY_BROKER_URL='redis://host.docker.internal:6379/0'
-CELERY_RESULT_BACKEND='redis://host.docker.internal:6379/0'
+# Redis & Celery settings
+REDIS_PASSWORD=your_redis_password_here
+REDIS_URL=redis://:your_redis_password_here@redis:6379/1
+CELERY_BROKER_URL=redis://:your_redis_password_here@redis:6379/0
+CELERY_RESULT_BACKEND=redis://:your_redis_password_here@redis:6379/0
 
-AWS_ACCESS_KEY_ID=your_aws_access_key_id
-AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
-AWS_REGION=your_aws_region
+# Backblaze B2 Configuration (S3-Compatible)
+B2_APPLICATION_KEY_ID=your_b2_application_key_id
+B2_APPLICATION_KEY=your_b2_application_key
+B2_ENDPOINT_URL=https://s3.us-west-004.backblazeb2.com
+B2_BUCKET_NAME=your_b2_bucket_name
+B2_REGION=us-west-004
 
-# AWS S3 Configuration
-AWS_S3_BUCKET_NAME=your_aws_s3_bucket_name
+# Resend Email Configuration
+RESEND_API_KEY=re_yourresendapikeyhere
+RESEND_FROM_EMAIL=onboarding@resend.dev
 
 # Document Processing Configuration
-DOCUMENT_PROCESSING_ENGINE=textract
+DOCUMENT_PROCESSING_ENGINE=tesseract
 FALLBACK_TO_OCR_ON_TEXTRACT_FAILURE=True
 GHANA_CARD_TEXTRACT_CONFIDENCE_THRESHOLD=0.6

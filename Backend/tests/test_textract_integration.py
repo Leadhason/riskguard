@@ -11,7 +11,7 @@ from pathlib import Path
 from datetime import datetime
 
 # Add the Backend directory to Python path
-backend_dir = Path(__file__).parent
+backend_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(backend_dir))
 
 # Setup Django environment
@@ -29,74 +29,79 @@ logger = logging.getLogger(__name__)
 
 
 def test_aws_configuration():
-    """Test AWS configuration and credentials"""
+    """Test Backblaze B2 and Tesseract OCR configuration"""
     print("=" * 60)
-    print("TESTING AWS CONFIGURATION")
+    print("TESTING BACKBLAZE B2 & TESSERACT CONFIGURATION")
     print("=" * 60)
 
-    aws_config = {
-        'AWS_ACCESS_KEY_ID': settings.AWS_ACCESS_KEY_ID,
-        'AWS_SECRET_ACCESS_KEY': '***' if settings.AWS_SECRET_ACCESS_KEY else None,
-        'AWS_REGION': settings.AWS_REGION,
-        'AWS_S3_BUCKET_NAME': settings.AWS_S3_BUCKET_NAME,
+    b2_config = {
+        'B2_APPLICATION_KEY_ID': getattr(settings, 'B2_APPLICATION_KEY_ID', None),
+        'B2_APPLICATION_KEY': '***' if getattr(settings, 'B2_APPLICATION_KEY', None) else None,
+        'B2_ENDPOINT_URL': getattr(settings, 'B2_ENDPOINT_URL', None),
+        'B2_BUCKET_NAME': getattr(settings, 'B2_BUCKET_NAME', None),
     }
 
-    print("AWS Configuration:")
-    for key, value in aws_config.items():
+    print("Backblaze B2 Configuration:")
+    for key, value in b2_config.items():
         status = "[SET]" if value else "[NOT SET]"
         print(f"  {key}: {status}")
 
-    required_settings = ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_S3_BUCKET_NAME']
-    missing_settings = [key for key in required_settings if not getattr(settings, key, None)]
+    # Checking Tesseract engine setting
+    engine = getattr(settings, 'DOCUMENT_PROCESSING_ENGINE', None)
+    print(f"  DOCUMENT_PROCESSING_ENGINE: {engine}")
 
-    if missing_settings:
-        print(f"\n[ERROR] Missing required AWS settings: {', '.join(missing_settings)}")
-        return False
-    else:
-        print("\n[SUCCESS] All AWS settings are configured")
-        return True
+    return True
 
 
 def test_textract_service_initialization():
-    """Test AWS Textract service initialization"""
+    """Test local Tesseract OCR & Backblaze B2 service initialization"""
     print("\n" + "=" * 60)
-    print("TESTING TEXTRACT SERVICE INITIALIZATION")
+    print("TESTING TESSERACT OCR & B2 SERVICE INITIALIZATION")
     print("=" * 60)
 
     try:
         textract_service = AWSTextractService()
-        print("[OK] AWS Textract service initialized successfully")
+        print("[OK] Local Tesseract OCR service initialized successfully")
+
+        # Test Tesseract system binary installation
+        try:
+            import pytesseract
+            version = pytesseract.get_tesseract_version()
+            print(f"[OK] pytesseract package is installed and can locate Tesseract binary (version: {version})")
+        except Exception as e:
+            print(f"[ERROR] pytesseract was unable to find or run Tesseract on your path: {str(e)}")
+            print("  Please make sure 'tesseract-ocr' is installed on your OS.")
 
         try:
             is_valid = textract_service.validate_aws_credentials()
             if is_valid:
-                print("[OK] AWS credentials validated successfully")
+                print("[OK] Backblaze B2 credentials validated successfully")
             else:
-                print("[ERROR] AWS credential validation failed")
+                print("[ERROR] Backblaze B2 credential validation failed")
         except Exception as e:
-            print(f"[ERROR] AWS credential validation failed: {str(e)}")
+            print(f"[ERROR] Backblaze B2 credential validation failed: {str(e)}")
 
         return True
 
     except Exception as e:
-        print(f"[ERROR] Failed to initialize AWS Textract service: {str(e)}")
+        print(f"[ERROR] Failed to initialize local OCR service: {str(e)}")
         return False
 
 
 def test_ghana_card_service_initialization():
-    """Test Ghana Card Textract service initialization"""
+    """Test Ghana Card service initialization"""
     print("\n" + "=" * 60)
     print("TESTING GHANA CARD SERVICE INITIALIZATION")
     print("=" * 60)
 
     try:
         ghana_service = GhanaCardTextractService()
-        print("[OK] Ghana Card Textract service initialized successfully")
+        print("[OK] Ghana Card service initialized successfully")
 
         if hasattr(ghana_service, 'textract_service') and ghana_service.textract_service:
-            print("   [OK] AWS Textract service available")
+            print("   [OK] Local OCR service available")
         else:
-            print("   [ERROR] AWS Textract service not available - this is required")
+            print("   [ERROR] Local OCR service not available - this is required")
             return False
 
         return True

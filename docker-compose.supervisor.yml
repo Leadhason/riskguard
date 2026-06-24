@@ -12,11 +12,11 @@ services:
     image: postgres:15-alpine
     container_name: riskguard-database
     env_file:
-      - .env
+      - ./Backend/.env
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -39,7 +39,7 @@ services:
     image: redis:7-alpine
     container_name: riskguard-redis
     env_file:
-      - .env
+      - ./Backend/.env
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
@@ -60,10 +60,10 @@ services:
   backend:
     build:
       context: ./Backend
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile
     container_name: riskguard-backend
     env_file:
-      - .env
+      - ./Backend/.env
     environment:
       # Django Configuration
       - SECRET_KEY=${SECRET_KEY}
@@ -71,9 +71,9 @@ services:
       - ALLOWED_HOSTS=localhost,127.0.0.1,backend,0.0.0.0
       
       # Database Configuration
-      - DB_NAME=${POSTGRES_DB}
-      - DB_USER=${POSTGRES_USER}
-      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_HOST=database
       - DB_PORT=5432
       
@@ -134,21 +134,21 @@ services:
   celery-worker:
     build:
       context: ./Backend
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile
     container_name: riskguard-celery-worker
     command: celery -A backend worker --loglevel=info --concurrency=2
     env_file:
-      - .env
+      - ./Backend/.env
     environment:
       # Django Configuration
       - SECRET_KEY=${SECRET_KEY}
       - DEBUG=False
       
       # Database Configuration
-      - DB_NAME=${POSTGRES_DB}
-      - DB_USER=${POSTGRES_USER}
-      - DB_PASSWORD=${POSTGRES_PASSWORD}
-      - DB_HOST=database
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=${DB_HOST}
       - DB_PORT=5432
       
       # Redis Configuration
@@ -184,10 +184,10 @@ services:
   celery-beat:
     build:
       context: ./Backend
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile
     container_name: riskguard-celery-beat
     env_file:
-      - .env
+      - ./Backend/.env
     command: celery -A backend beat --loglevel=info
     environment:
       # Django Configuration
@@ -195,10 +195,10 @@ services:
       - DEBUG=False
       
       # Database Configuration
-      - DB_NAME=${POSTGRES_DB}
-      - DB_USER=${POSTGRES_USER}
-      - DB_PASSWORD=${POSTGRES_PASSWORD}
-      - DB_HOST=database
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=${DB_HOST}
       - DB_PORT=5432
       
       # Redis Configuration
@@ -253,7 +253,7 @@ services:
   ml-api:
     build:
       context: ./Backend
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile
     container_name: riskguard-ml-api
     command: python ml_model/fastapi_integration.py
     environment:
